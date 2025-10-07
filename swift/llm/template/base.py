@@ -526,7 +526,7 @@ class Template(ProcessorMixin):
         if chosen.channel is not None:
             encoded['channel'] = chosen.channel
 
-        lengths = [0]
+        lengths = [0] if self.task_type not in {'reranker', 'generative_reranker'} else []
         for key in list(encoded.keys()):
             if encoded[key] is None:
                 encoded.pop(key)
@@ -537,7 +537,10 @@ class Template(ProcessorMixin):
                 elif isinstance(value, (tuple, list)):
                     lengths += value
         if return_length:
-            encoded['length'] = sum(lengths)
+            if self.task_type in {'reranker', 'generative_reranker'}:
+                encoded['length'] = lengths
+            else:
+                encoded['length'] = sum(lengths)
         else:
             encoded.pop('length', None)
         if return_template_inputs:
