@@ -10,7 +10,7 @@ from transformers.utils.versions import require_version
 
 from swift.llm import TemplateType
 from swift.utils import get_device_count, get_dist_setting, get_env_args, get_logger
-from ..constant import LLMModelType, MLLMModelType, RMModelType, RERANKERModelType
+from ..constant import LLMModelType, MLLMModelType, RERANKERModelType, RMModelType
 from ..model_arch import ModelArch
 from ..patcher import patch_fixed_device, patch_get_input_embeddings, patch_output_clone
 from ..register import (Model, ModelGroup, ModelMeta, get_model_tokenizer_multimodal, get_model_tokenizer_reward_model,
