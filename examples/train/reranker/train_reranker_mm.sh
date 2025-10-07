@@ -1,7 +1,5 @@
-# nproc_per_node=2
-# NPROC_PER_NODE=$nproc_per_node \
-CUDA_VISIBLE_DEVICES=7 \
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+nproc_per_node=2
+NPROC_PER_NODE=$nproc_per_node \
 MAX_NEGATIVE_SAMPLES=1 \
 MAX_PIXELS=602112 \
 swift sft \

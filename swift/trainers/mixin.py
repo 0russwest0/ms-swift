@@ -671,13 +671,6 @@ class SwiftMixin:
                     return revert_padding_free(output, input, self.args.padding_side)
 
                 llm_model.register_forward_hook(revert_padding_free_hook, with_kwargs=True, prepend=True)
-            elif self.args.task_type == 'generative_reranker':
-                llm_model = get_llm_model(self.model, model_meta=self.model.model_meta)
-
-                def revert_padding_free_hook(module, args, input, output):
-                    return revert_padding_free(output, input, self.args.padding_side)
-
-                llm_model.register_forward_hook(revert_padding_free_hook, with_kwargs=True, prepend=True)
 
     def _fix_gradient_checkpointing(self):
         # fix use_reentrant

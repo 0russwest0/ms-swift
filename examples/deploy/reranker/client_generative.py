@@ -37,7 +37,7 @@ if __name__ == '__main__':
     with run_deploy(
             DeployArguments(
                 model='Qwen/Qwen3-Reranker-0.6B',
-                task_type='generative_reranker',
+                task_type='reranker',
                 infer_backend='vllm',
                 gpu_memory_utilization=0.7,
                 verbose=False,
