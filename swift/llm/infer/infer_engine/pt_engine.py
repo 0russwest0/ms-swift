@@ -341,9 +341,9 @@ class PtEngine(InferEngine):
         elif template.task_type == 'embedding':
             preds = logits
             logprobs = [None] * len(preds)
-        elif template.task_type in ('reranker', 'generative_reranker'):
-            if template.task_type == 'generative_reranker':
-                # Qwen3-reranker like
+        elif template.task_type == 'reranker':
+            # If model outputs token-level logits (CausalLM), compute yes/no score at the last step.
+            if isinstance(logits, torch.Tensor) and logits.dim() == 3:
                 positive_token = os.environ.get('GENERATIVE_RERANKER_POSITIVE_TOKEN', 'yes')
                 negative_token = os.environ.get('GENERATIVE_RERANKER_NEGATIVE_TOKEN', 'no')
                 token_false_id = template.tokenizer.convert_tokens_to_ids(negative_token)
@@ -548,9 +548,8 @@ class PtEngine(InferEngine):
             return _gen_wrapper()
         else:
             if len(kwargs) > 0:
-                infer_func = self._infer_forward if template.task_type in {
-                    'seq_cls', 'prm', 'embedding', 'reranker', 'generative_reranker'
-                } else self._infer_full
+                infer_func = self._infer_forward if template.task_type in {'seq_cls', 'prm', 'embedding', 'reranker'
+                                                                           } else self._infer_full
                 res = infer_func(**kwargs)
             else:
                 res = []

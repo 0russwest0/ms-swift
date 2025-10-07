@@ -4,11 +4,12 @@ from typing import Any, Dict, Optional
 
 import torch
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
+from transformers.modeling_outputs import SequenceClassifierOutputWithPast
 
 from swift.llm import TemplateType
 from swift.llm.model.model.qwen import get_model_tokenizer_qwen2_vl
 from swift.utils import get_logger
-from ..constant import MLLMModelType
+from ..constant import MLLMModelType, RERANKERModelType
 from ..model_arch import ModelArch
 from ..patcher import patch_output_clone, patch_output_normalizer
 from ..register import (Model, ModelGroup, ModelMeta, get_model_tokenizer_multimodal,
@@ -179,6 +180,81 @@ register_model(
         model_arch=ModelArch.qwen2_vl,
         architectures=['Qwen2VLForConditionalGeneration'],
         tags=['vision']))
+
+
+def get_model_tokenizer_jina_reranker_m0(model_dir: str, *args, **kwargs):
+    # Use AutoModel to respect the model repo's dynamic class mapping
+    # and load the custom Jina reranker head via trust_remote_code.
+    from transformers import AutoModel
+    kwargs['automodel_class'] = kwargs.get('automodel_class') or AutoModel
+    model, processor = get_model_tokenizer_multimodal(model_dir, *args, **kwargs)
+    # Patch forward to return a sequence-classification-style output with `.logits`
+    # Use the model's own head (already present in jina-reranker-m0), just wrap outputs.
+    if model is not None and not hasattr(model, '_forward_origin'):
+        model._forward_origin = model.forward
+
+        def forward(self, *f_args, **f_kwargs):
+            # Remove labels to avoid upstream asserts in ranking models
+            f_kwargs.pop('labels', None)
+            return_dict = f_kwargs.pop('return_dict', None)
+            if return_dict is None:
+                return_dict = True
+
+            out = self._forward_origin(*f_args, **f_kwargs)
+
+            # Derive logits from various possible return types
+            if isinstance(out, torch.Tensor):
+                logits = out
+                past_kv = None
+                hidden_states = None
+                attentions = None
+            elif hasattr(out, 'logits'):
+                logits = out.logits
+                past_kv = getattr(out, 'past_key_values', None)
+                hidden_states = getattr(out, 'hidden_states', None)
+                attentions = getattr(out, 'attentions', None)
+            else:
+                logits = out
+                past_kv = None
+                hidden_states = None
+                attentions = None
+
+            # Ensure logits shape is [batch, 1] for BCEWithLogitsLoss downstream
+            if isinstance(logits, torch.Tensor) and logits.ndim == 1:
+                logits = logits.unsqueeze(-1)
+
+            # Subtract bias (no sigmoid) to align with jina-reranker-m0 normalization behavior
+            if isinstance(logits, torch.Tensor):
+                bias = getattr(self, 'logit_bias', 2.65)
+                logits = logits - bias
+
+            if not return_dict:
+                return (logits, )
+
+            return SequenceClassifierOutputWithPast(
+                loss=None,
+                logits=logits,
+                past_key_values=past_kv,
+                hidden_states=hidden_states,
+                attentions=attentions,
+            )
+
+        model.forward = MethodType(forward, model)
+        if not hasattr(model, 'logit_bias'):
+            model.logit_bias = 2.65
+    return model, processor
+
+
+register_model(
+    ModelMeta(
+        RERANKERModelType.jina_reranker_m0,
+        [ModelGroup([Model('JinaAI/jina-reranker-m0', 'JinaAI/jina-reranker-m0')])],
+        TemplateType.jina_reranker_m0,
+        get_model_tokenizer_jina_reranker_m0,
+        model_arch=ModelArch.qwen2_vl,
+        architectures=['JinaRerankerM0ForConditionalGeneration'],
+        tags=['reranker'],
+    ))
 
 
 def get_model_tokenizer_keye_vl(model_dir: str, *args, **kwargs):

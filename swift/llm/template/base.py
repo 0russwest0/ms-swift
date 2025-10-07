@@ -127,8 +127,7 @@ class Template(ProcessorMixin):
             self.skip_prompt = False
         self.mode: Literal['pt', 'vllm', 'lmdeploy', 'sglang',  # infer
                            'train', 'rlhf', 'kto', 'gkd'] = 'pt'  # train
-        self.task_type: Literal['causal_lm', 'seq_cls', 'embedding', 'prm', 'reranker',
-                                'generative_reranker'] = 'causal_lm'
+        self.task_type: Literal['causal_lm', 'seq_cls', 'embedding', 'prm', 'reranker'] = 'causal_lm'
         self.use_megatron = False
         self._handles = []
         self._deepspeed_initialize = None
@@ -436,6 +435,9 @@ class Template(ProcessorMixin):
                 if instruction is not None and positive.system is None:
                     positive.system = instruction
                 positive.messages = chosen.messages + positive.messages
+                positive.images = chosen.images + positive.images
+                positive.audios = chosen.audios + positive.audios
+                positive.videos = chosen.videos + positive.videos
                 positive_encoded = self._encode_truncated(positive)
                 labels.append(1)
                 for key in positive_encoded:
@@ -445,6 +447,9 @@ class Template(ProcessorMixin):
                 if instruction is not None and negative.system is None:
                     negative.system = instruction
                 negative.messages = chosen.messages + negative.messages
+                negative.images = chosen.images + negative.images
+                negative.audios = chosen.audios + negative.audios
+                negative.videos = chosen.videos + negative.videos
                 negative_encoded = self._encode_truncated(negative)
                 labels.append(0)
                 for key in negative_encoded:
@@ -513,7 +518,7 @@ class Template(ProcessorMixin):
             encoded = self._encode_truncated(chosen)
         elif self.task_type == 'embedding':
             encoded = self._embedding_encode(inputs)
-        elif self.task_type in {'reranker', 'generative_reranker'}:
+        elif self.task_type == 'reranker':
             encoded = self._reranker_encode(inputs)
         else:
             raise ValueError(f'task_type: {self.task_type} is not supported.')
@@ -1403,7 +1408,7 @@ class Template(ProcessorMixin):
                 res = self._seq_cls_data_collator(batch, padding_to=padding_to)
         elif self.task_type == 'embedding':
             res = self._embedding_data_collator(batch, padding_to=padding_to)
-        elif self.task_type in {'reranker', 'generative_reranker'}:
+        elif self.task_type == 'reranker':
             res = self._reranker_data_collator(batch, padding_to=padding_to)
         else:
             raise ValueError(f'task_type: {self.task_type} is not supported.')
@@ -1542,10 +1547,12 @@ class Template(ProcessorMixin):
                 max_positive = min(positive_num, max_positive_samples)
                 max_negative = min(negative_num, max_negative_samples)
                 for i in random.sample(range(positive_num), max_positive):
-                    new_batch.append({'input_ids': b['input_ids'][i]})
+                    new_batch.append({key: b[key][i] for key in b.keys() if isinstance(b[key], list)})
                     labels_list.append(1)
                     for j in random.sample(range(negative_num), max_negative):
-                        new_batch.append({'input_ids': b['input_ids'][j + positive_num]})
+                        new_batch.append(
+                            {key: b[key][j + positive_num]
+                             for key in b.keys() if isinstance(b[key], list)})
                         labels_list.append(0)
 
             res = self._data_collator(new_batch, padding_to=padding_to)
@@ -1554,7 +1561,7 @@ class Template(ProcessorMixin):
         else:
             new_batch = []
             for b in batch:
-                new_batch.append({'input_ids': b['input_ids']})
+                new_batch.append({key: b[key][i] for key in b.keys() if isinstance(b[key], list)})
             res = self._data_collator(new_batch, padding_to=padding_to)
         return res
 
@@ -1667,7 +1674,7 @@ class Template(ProcessorMixin):
                 seq_len = max(seq_lens) if padding_to is None else padding_to
                 res['attention_mask'] = torch.tril(torch.ones(
                     (len(seq_lens), seq_len, seq_len), dtype=torch.bool)).view(len(seq_lens), 1, seq_len, seq_len)
-                assert res['attention_mask'].dtype is torch.bool, f'attention_mask.dtype: {res["attention_mask"].dtype}'
+                assert res['attention_mask'].dtype is torch.bool, f'attention_mask.dtype: {res['attention_mask'].dtype}'
                 for i, seq_len in enumerate(seq_lens):
                     res['attention_mask'][i, :, seq_len:] = 0
 
@@ -1743,9 +1750,9 @@ class Template(ProcessorMixin):
         ]
 
         # For reranker/embedding modes, also check prefixed keys
-        if self.task_type in {'reranker', 'generative_reranker', 'embedding'}:
+        if self.task_type in {'reranker', 'embedding'}:
             prefixes = []
-            if self.task_type in {'reranker', 'generative_reranker'}:
+            if self.task_type == 'reranker':
                 prefixes = ['positive_', 'negative_']
             elif self.task_type == 'embedding':
                 prefixes = ['anchor_', 'positive_', 'negative_']
@@ -1775,7 +1782,7 @@ class Template(ProcessorMixin):
 
         for key in keys_to_check:
             # Skip labels completely for certain modes
-            if key.endswith('labels') and self.task_type in {'reranker', 'generative_reranker'}:
+            if key.endswith('labels') and self.task_type == 'reranker':
                 continue
 
             val = inputs.get(key)  # fix val is a tensor
@@ -1847,7 +1854,7 @@ class Template(ProcessorMixin):
         Returns:
             A tensor after padding
         """
-        padding_side = self.padding_side if self.is_training and self.task_type != 'generative_reranker' else 'left'
+        padding_side = self.padding_side if self.is_training and self.task_type != 'reranker' else 'left'
         padding_right = padding_side == 'right'
         if padding_right:
             return pad_sequence(sequences, batch_first=True, padding_value=padding_value)

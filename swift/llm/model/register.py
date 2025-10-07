@@ -72,6 +72,7 @@ class ModelMeta:
 
     is_multimodal: bool = False
     is_reward: bool = False
+    is_reranker: bool = False
     task_type: Optional[str] = None
 
     # File patterns to ignore when downloading the model.
@@ -123,11 +124,13 @@ def register_model(model_meta: ModelMeta, *, exist_ok: bool = False) -> None:
     model_type = model_meta.model_type
     if not exist_ok and model_type in MODEL_MAPPING:
         raise ValueError(f'The `{model_type}` has already been registered in the MODEL_MAPPING.')
-    from .constant import MLLMModelType, RMModelType
+    from .constant import MLLMModelType, RMModelType, RERANKERModelType
     if model_type in MLLMModelType.__dict__:
         model_meta.is_multimodal = True
     if model_type in RMModelType.__dict__:
         model_meta.is_reward = True
+    if model_type in RERANKERModelType.__dict__:
+        model_meta.is_reranker = True
     if model_meta.model_arch:
         model_meta.model_arch = get_model_arch(model_meta.model_arch)
     MODEL_MAPPING[model_type] = model_meta
@@ -251,7 +254,7 @@ def get_model_tokenizer_from_local(model_dir: str,
     if load_model:
         _patch_awq_compat(model_info)
         logger.info(f'model_kwargs: {model_kwargs}')
-        if model_info.task_type in {'seq_cls', 'reranker'} and automodel_class is None and not return_dummy_model:
+        if model_info.task_type == 'seq_cls' and automodel_class is None and not return_dummy_model:
             with patch_automodel_for_sequence_classification(model_config=model_config, patch_from_pretrained=False):
                 try:
                     model = AutoModelForSequenceClassification.from_pretrained(
@@ -277,14 +280,14 @@ def get_model_tokenizer_from_local(model_dir: str,
                                'ignore_mismatched_sizes will be set to True')
                 model_kwargs['ignore_mismatched_sizes'] = True
                 context = partial(patch_automodel_for_sequence_classification, **context_kwargs)
-            elif model_info.task_type == 'reranker':
-                # For reranker task, patch CausalLM to SequenceClassification with num_labels=1
-                logger.info('Converting CausalLM to SequenceClassification for reranker task with num_labels=1')
-                context = partial(patch_automodel_for_sequence_classification, **context_kwargs)
-            elif model_info.task_type == 'generative_reranker':
-                # For generative reranker, keep CausalLM structure unchanged
-                logger.info('Loading model as CausalLM for generative_reranker task')
-                context = partial(patch_automodel, **context_kwargs)
+            elif model_info.task_type == 'reranker' and not model_meta.is_reranker:
+                patch_reranker = os.getenv('PATCH_RERANKER_FOR_SEQUENCE_CLASSIFICATION', 'True') == 'True'
+                if patch_reranker:
+                    # For reranker task, patch CausalLM to SequenceClassification with num_labels=1
+                    logger.info('Converting CausalLM to SequenceClassification for reranker task with num_labels=1')
+                    context = partial(patch_automodel_for_sequence_classification, **context_kwargs)
+                else:
+                    context = partial(patch_automodel, **context_kwargs)
             else:
                 context = partial(patch_automodel, **context_kwargs)
             with context():
@@ -609,15 +612,16 @@ def get_model_info_meta(
         if model_meta.task_type is not None:
             task_type = model_meta.task_type
 
-    # Handle reranker task type
-    if task_type == 'reranker':
+    # Normalize deprecated alias: generative_reranker -> reranker
+    if task_type == 'generative_reranker':
+        logger.warning(
+            "'generative_reranker' is deprecated and will be removed in a future release. Please use 'reranker'.")
+        task_type = 'reranker'
+
+    # Handle reranker task type: only set num_labels when patching to sequence classification
+    if task_type == 'reranker' and not model_meta.is_reranker:
         if num_labels is None:
-            num_labels = 1  # Default to 1 for reranker tasks
-        logger.info(f'Setting reranker task with num_labels={num_labels}')
-    elif task_type == 'generative_reranker':
-        # Generative reranker doesn't need num_labels as it uses CausalLM structure
-        num_labels = None
-        logger.info('Setting generative_reranker task (no num_labels needed)')
+            num_labels = 1
     elif task_type == 'seq_cls':
         assert num_labels is not None, 'Please pass the parameter `num_labels`.'
 

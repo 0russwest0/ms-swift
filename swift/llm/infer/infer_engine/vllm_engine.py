@@ -175,7 +175,7 @@ class VllmEngine(InferEngine):
             task = 'embed'
         elif task == 'seq_cls':
             task = 'classify'
-        elif task in ('reranker', 'generative_reranker'):
+        elif task == 'reranker':
             task = 'score'
         disable_log_stats = engine_kwargs.pop('disable_log_stats', True)
         if self.use_async_engine:
@@ -351,13 +351,12 @@ class VllmEngine(InferEngine):
                 'embedding': 'embed',
                 'seq_cls': 'classify',
                 'reranker': 'score',
-                'generative_reranker': 'score',
             }
             if self.task_type in task_mapping:
                 pooling_kwargs = {}
                 if has_task_arg:
                     pooling_kwargs['task'] = task_mapping[self.task_type]
-                if self.task_type in ('reranker', 'generative_reranker') and \
+                if self.task_type == 'reranker' and \
                         has_activation_arg and self.reranker_use_activation:
                     pooling_kwargs['activation'] = True
                 pooling_params = PoolingParams(**pooling_kwargs)
@@ -626,7 +625,7 @@ class VllmEngine(InferEngine):
             pass
         if self.task_type == 'embedding':
             return self._create_embedding_response(result, template, generation_config, request_id)
-        elif self.task_type in ('seq_cls', 'reranker', 'generative_reranker'):
+        elif self.task_type in ('seq_cls', 'reranker'):
             return self._create_seq_cls_response(result, template, request_config, request_id)
         else:
             return self._create_chat_completion_response(result, inputs, template, request_config, request_id)

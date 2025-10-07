@@ -4,7 +4,7 @@ nproc_per_node=4
 NPROC_PER_NODE=$nproc_per_node \
 swift sft \
     --model Qwen/Qwen3-Reranker-4B \
-    --task_type generative_reranker \
+    --task_type reranker \
     --loss_type generative_reranker \
     --train_type full \
     --dataset MTEB/scidocs-reranking \
