@@ -1550,12 +1550,15 @@ class Template(ProcessorMixin):
                 max_positive = min(positive_num, max_positive_samples)
                 max_negative = min(negative_num, max_negative_samples)
                 for i in random.sample(range(positive_num), max_positive):
-                    new_batch.append({key: b[key][i] for key in b.keys() if isinstance(b[key], list) and b[key][i] is not None})
+                    new_batch.append(
+                        {key: b[key][i]
+                         for key in b.keys() if isinstance(b[key], list) and b[key][i] is not None})
                     labels_list.append(1)
                     for j in random.sample(range(negative_num), max_negative):
-                        new_batch.append(
-                            {key: b[key][j + positive_num]
-                             for key in b.keys() if isinstance(b[key], list) and b[key][j + positive_num] is not None})
+                        new_batch.append({
+                            key: b[key][j + positive_num]
+                            for key in b.keys() if isinstance(b[key], list) and b[key][j + positive_num] is not None
+                        })
                         labels_list.append(0)
 
             res = self._data_collator(new_batch, padding_to=padding_to)
@@ -1564,7 +1567,9 @@ class Template(ProcessorMixin):
         else:
             new_batch = []
             for b in batch:
-                new_batch.append({key: b[key][i] for key in b.keys() if isinstance(b[key], list) and b[key][i] is not None})
+                new_batch.append(
+                    {key: b[key][i]
+                     for key in b.keys() if isinstance(b[key], list) and b[key][i] is not None})
             res = self._data_collator(new_batch, padding_to=padding_to)
         return res
 
